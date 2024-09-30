@@ -115,8 +115,9 @@ BOOL CTSSDlg::OnInitDialog()
 	// TODO: Add extra initialization here
 	GetClientRect(&m_Rect);
 	m_FileList.GetWindowRect(&m_FileListRect);
-	m_Hist.GetClientRect(&m_HistRect);
-	m_Pic.GetClientRect(&m_PicRect);
+	m_Hist.GetWindowRect(&m_HistRect);
+	ScreenToClient(&m_HistRect);
+	m_Pic.GetWindowRect(&m_PicRect);
 
 	return TRUE;  // return TRUE  unless you set the focus to a control
 }
@@ -206,7 +207,7 @@ void CTSSDlg::OnSize(UINT nType, int cx, int cy)
 	if (::IsWindow(m_FileList) && ::IsWindow(m_Hist) && ::IsWindow(m_Pic))
 	{
 		m_FileList.SetWindowPos(nullptr, 0, 0, m_FileListRect.Width(), m_FileListRect.Height() + cy - m_Rect.Height(), SWP_NOMOVE);
-		m_Hist.SetWindowPos(nullptr, 11, m_HistRect.Height() + cy - m_Rect.Height() + 40, 0, 0, SWP_NOSIZE);
+		m_Hist.SetWindowPos(nullptr, m_HistRect.left, m_HistRect.top + cy - m_Rect.Height(), 0, 0, SWP_NOSIZE);
 		m_Pic.SetWindowPos(nullptr, 0, 0, m_PicRect.Width() + cx - m_Rect.Width(), m_PicRect.Height() + cy - m_Rect.Height(), SWP_NOMOVE);
 	}
 	Invalidate();
