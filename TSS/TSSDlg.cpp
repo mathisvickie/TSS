@@ -12,6 +12,28 @@
 #define new DEBUG_NEW
 #endif
 
+void CStaticImage::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
+{
+	GetParent()->SendMessage(WM_DRAW_IMAGE, (WPARAM)lpDrawItemStruct);
+}
+void CStaticHist::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
+{
+	GetParent()->SendMessage(WM_DRAW_HISTOGRAM, (WPARAM)lpDrawItemStruct);
+}
+
+LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
+{
+	LPDRAWITEMSTRUCT st = (LPDRAWITEMSTRUCT)wParam;
+	//CDC* pDC = CDC::FromHandle(st->hDC);
+	//pDC->TextOutW(100, 100, CString("Hello World!"));
+	auto gr = Gdiplus::Graphics::FromHDC(st->hDC);
+	//gr->DrawCurve()
+	return S_OK;
+}
+LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
+{
+	return S_OK;
+}
 
 // CAboutDlg dialog used for App About
 
@@ -71,17 +93,27 @@ BEGIN_MESSAGE_MAP(CTSSDlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
-	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST1, &CTSSDlg::OnLvnItemchangedList1)
 	ON_COMMAND(ID_FILE_OPEN32771, &CTSSDlg::OnFileOpen)
 	ON_COMMAND(ID_FILE_CLOSE32776, &CTSSDlg::OnFileClose)
 	ON_WM_SIZE()
 	ON_COMMAND(ID_HELP_ABOUT, &CTSSDlg::OnHelpAbout)
 	ON_COMMAND(ID_FILE_EXIT32774, &CTSSDlg::OnFileExit)
 	ON_COMMAND(ID_FILE_SAVE32773, &CTSSDlg::OnFileSave)
+	ON_MESSAGE(WM_DRAW_IMAGE, &OnDrawImage)
+	ON_MESSAGE(WM_DRAW_HISTOGRAM, &OnDrawHist)
 END_MESSAGE_MAP()
 
-
 // CTSSDlg message handlers
+
+BOOL CTSSDlg::PreTranslateMessage(PMSG pMsg)
+{
+	if (pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_DELETE)
+	{
+		CTSSDlg::OnFileClose();
+		return TRUE;
+	}
+	return CDialogEx::PreTranslateMessage(pMsg);
+}
 
 BOOL CTSSDlg::OnInitDialog()
 {
@@ -172,22 +204,39 @@ HCURSOR CTSSDlg::OnQueryDragIcon()
 }
 
 
-
-void CTSSDlg::OnLvnItemchangedList1(NMHDR* pNMHDR, LRESULT* pResult)
+bool CTSSDlg::IsFileOpen(SFile* pFile)
 {
-	LPNMLISTVIEW pNMLV = reinterpret_cast<LPNMLISTVIEW>(pNMHDR);
-	*pResult = 0;
-}
+	auto path = pFile->m_Path.GetBuffer();
 
+	loop(m_Files.size())
+	{
+		auto buff = m_Files[i].m_Path.GetBuffer();
+
+		if (!wcscmp(buff, path)) return true;
+	}
+	return false;
+}
 
 void CTSSDlg::OnFileOpen()
 {
-	CFileDialog fd(TRUE);
-	fd.DoModal();
-	auto f = fd.GetFileName();
-	if (f == "") return;
+	CFileDialog fd(TRUE, nullptr, NULL, OFN_FILEMUSTEXIST | OFN_ALLOWMULTISELECT, L"Image Files (*.png,*.bmp,*.jpg)|*.png; *.bmp; *.jpg|", this);
+	if (fd.DoModal() != IDOK) return;
+
 	CListCtrl* lc = (CListCtrl*)GetDlgItem(IDC_LIST_FILE);
-	lc->InsertItem(0, f);
+	POSITION p(fd.GetStartPosition());
+
+	while (p)
+	{
+		SFile f;
+		f.m_Path = fd.GetNextPathName(p);
+		f.m_Name = f.m_Path.Mid(f.m_Path.ReverseFind('\\') + 1);
+
+		if (!IsFileOpen(&f))
+		{
+			lc->InsertItem(lc->GetItemCount() + 1, f.m_Name);
+			m_Files.push_back(f);
+		}
+	}
 }
 
 
@@ -196,7 +245,14 @@ void CTSSDlg::OnFileClose()
 	CListCtrl* lc = (CListCtrl*)GetDlgItem(IDC_LIST_FILE);
 	auto pos =  lc->GetFirstSelectedItemPosition();
 	if (!pos) return;
-	lc->DeleteItem(lc->GetNextSelectedItem(pos));
+	if (MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
+
+	auto i = lc->GetNextSelectedItem(pos);
+	lc->DeleteItem(i);
+	m_Files.erase(m_Files.begin() + i);
+
+	lc->SetItemState(0, LVIS_SELECTED, LVIS_SELECTED);
+	lc->SetSelectionMark(0);
 }
 
 
@@ -231,14 +287,4 @@ void CTSSDlg::OnFileExit()
 void CTSSDlg::OnFileSave()
 {
 	// TODO: Add your command handler code here
-}
-
-
-void CStaticImage::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
-{
-	GetParent()->SendMessage(1, (WPARAM)lpDrawItemStruct);
-}
-void CStaticHist::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
-{
-	GetParent()->SendMessage(1, (WPARAM)lpDrawItemStruct);
 }

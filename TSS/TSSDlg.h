@@ -3,16 +3,29 @@
 //
 
 #pragma once
+#include <vector>
+
+#define loop(m) for(int i = 0; i < m; i++)
+
+enum
+{
+	WM_DRAW_IMAGE = WM_USER + 1,
+	WM_DRAW_HISTOGRAM
+};
 
 class CStaticImage : public CStatic
 {
-public:
 	void DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct) override;
 };
 class CStaticHist : public CStatic
 {
-public:
 	void DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct) override;
+};
+
+struct SFile
+{
+	CString m_Path;
+	CString m_Name;
 };
 
 // CTSSDlg dialog
@@ -42,7 +55,6 @@ protected:
 	afx_msg HCURSOR OnQueryDragIcon();
 	DECLARE_MESSAGE_MAP()
 public:
-	afx_msg void OnLvnItemchangedList1(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg void OnFileOpen();
 	afx_msg void OnFileClose();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
@@ -56,4 +68,9 @@ public:
 	CRect m_PicRect;
 	afx_msg void OnFileExit();
 	afx_msg void OnFileSave();
+	afx_msg LRESULT OnDrawImage(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnDrawHist(WPARAM wParam, LPARAM lParam);
+	std::vector<SFile> m_Files;
+	bool IsFileOpen(SFile* pFile);
+	BOOL PreTranslateMessage(PMSG pMsg);
 };
