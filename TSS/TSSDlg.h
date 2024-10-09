@@ -6,6 +6,7 @@
 #include <vector>
 
 #define loop(m) for(int i = 0; i < m; i++)
+#define safe_delete(p) if(p) delete p;
 
 enum
 {
@@ -26,6 +27,7 @@ struct SFile
 {
 	CString m_Path;
 	CString m_Name;
+	Gdiplus::Image* m_pImage;
 };
 
 // CTSSDlg dialog
@@ -73,4 +75,6 @@ public:
 	std::vector<SFile> m_Files;
 	bool IsFileOpen(SFile* pFile);
 	BOOL PreTranslateMessage(PMSG pMsg);
+	afx_msg void OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult);
+	int m_SelectedItem = -1;
 };

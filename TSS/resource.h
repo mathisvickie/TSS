@@ -9,7 +9,6 @@
 #define IDR_MAINFRAME                   128
 #define IDR_MENU_MAIN                   129
 #define IDC_LIST1                       1000
-#define IDC_LIST_FILES                  1000
 #define IDC_LIST_FILE                   1000
 #define IDC_STATIC_HIST                 1003
 #define IDC_STATIC_PIC                  1004

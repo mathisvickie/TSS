@@ -23,12 +23,73 @@ void CStaticHist::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
 
 LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
 {
+	/*
 	LPDRAWITEMSTRUCT st = (LPDRAWITEMSTRUCT)wParam;
-	//CDC* pDC = CDC::FromHandle(st->hDC);
-	//pDC->TextOutW(100, 100, CString("Hello World!"));
-	auto gr = Gdiplus::Graphics::FromHDC(st->hDC);
-	//gr->DrawCurve()
-	return S_OK;
+	CDC* pDC = CDC::FromHandle(st->hDC);
+	pDC->TextOutW(100, 100, CString("Hello World!"));
+	*/
+	auto pGraphics = Gdiplus::Graphics::FromHDC(reinterpret_cast<LPDRAWITEMSTRUCT>(wParam)->hDC);
+
+	if (m_SelectedItem == -1) return S_OK;
+	auto f = &m_Files[m_SelectedItem];
+	if (!f->m_pImage) f->m_pImage = Gdiplus::Image::FromFile(f->m_Path);
+	
+	CRect ir;
+	m_Pic.GetClientRect(&ir);
+	INT bw = ir.Width();
+	INT bh = ir.Height();
+	INT iw = f->m_pImage->GetWidth();
+	INT ih = f->m_pImage->GetHeight();
+	INT x = 0;
+	INT y = 0;
+	INT w = 0;
+	INT h = 0;
+
+	if ((bw > iw && bh > ih) || (bw < iw && bh < ih))
+	{
+		if (ih > iw)
+		{
+			w = iw * bh / ih;
+			h = bh;
+			x = (bw - w) >> 1;
+
+			if (w > bw)
+			{
+				w = bw;
+				h = ih * bw / iw;
+				x = 0;
+				y = (bh - h) >> 1;
+			}
+		}
+		else
+		{
+			w = bw;
+			h = ih * bw / iw;
+			y = (bh - h) >> 1;
+
+			if (h > bh)
+			{
+				w = iw * bh / ih;
+				h = bh;
+				y = 0;
+				x = (bw - w) >> 1;
+			}
+		}
+	}
+	else if (bw > iw && bh < ih)
+	{
+		w = iw * bh / ih;
+		h = bh;
+		x = (bw - w) >> 1;
+	}
+	else if (bw < iw && bh > ih)
+	{
+		w = bw;
+		h = ih * bw / iw;
+		y = (bh - h) >> 1;
+	}
+
+	return pGraphics->DrawImage(f->m_pImage, x, y, w, h);
 }
 LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 {
@@ -101,6 +162,7 @@ BEGIN_MESSAGE_MAP(CTSSDlg, CDialogEx)
 	ON_COMMAND(ID_FILE_SAVE32773, &CTSSDlg::OnFileSave)
 	ON_MESSAGE(WM_DRAW_IMAGE, &OnDrawImage)
 	ON_MESSAGE(WM_DRAW_HISTOGRAM, &OnDrawHist)
+	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST_FILE, &CTSSDlg::OnLvnItemchangedListFile)
 END_MESSAGE_MAP()
 
 // CTSSDlg message handlers
@@ -222,19 +284,18 @@ void CTSSDlg::OnFileOpen()
 	CFileDialog fd(TRUE, nullptr, NULL, OFN_FILEMUSTEXIST | OFN_ALLOWMULTISELECT, L"Image Files (*.png,*.bmp,*.jpg)|*.png; *.bmp; *.jpg|", this);
 	if (fd.DoModal() != IDOK) return;
 
-	CListCtrl* lc = (CListCtrl*)GetDlgItem(IDC_LIST_FILE);
-	POSITION p(fd.GetStartPosition());
-
-	while (p)
+	POSITION pos(fd.GetStartPosition());
+	while (pos)
 	{
 		SFile f;
-		f.m_Path = fd.GetNextPathName(p);
+		f.m_Path = fd.GetNextPathName(pos);
 		f.m_Name = f.m_Path.Mid(f.m_Path.ReverseFind('\\') + 1);
+		f.m_pImage = nullptr;
 
 		if (!IsFileOpen(&f))
 		{
-			lc->InsertItem(lc->GetItemCount() + 1, f.m_Name);
 			m_Files.push_back(f);
+			m_FileList.InsertItem(m_FileList.GetItemCount() + 1, f.m_Name);
 		}
 	}
 }
@@ -242,17 +303,15 @@ void CTSSDlg::OnFileOpen()
 
 void CTSSDlg::OnFileClose()
 {
-	CListCtrl* lc = (CListCtrl*)GetDlgItem(IDC_LIST_FILE);
-	auto pos =  lc->GetFirstSelectedItemPosition();
-	if (!pos) return;
+	if (m_SelectedItem == -1) return;
 	if (MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
 
-	auto i = lc->GetNextSelectedItem(pos);
-	lc->DeleteItem(i);
-	m_Files.erase(m_Files.begin() + i);
+	safe_delete(m_Files[m_SelectedItem].m_pImage);
+	m_Files.erase(m_Files.begin() + m_SelectedItem);
 
-	lc->SetItemState(0, LVIS_SELECTED, LVIS_SELECTED);
-	lc->SetSelectionMark(0);
+	m_FileList.DeleteItem(m_SelectedItem);
+	m_FileList.SetItemState(0, LVIS_SELECTED, LVIS_SELECTED);
+	m_FileList.SetSelectionMark(0);
 }
 
 
@@ -287,4 +346,23 @@ void CTSSDlg::OnFileExit()
 void CTSSDlg::OnFileSave()
 {
 	// TODO: Add your command handler code here
+}
+
+
+void CTSSDlg::OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMLISTVIEW pNMLV = reinterpret_cast<LPNMLISTVIEW>(pNMHDR);
+	
+	if ((pNMLV->uChanged & LVIF_STATE) && (pNMLV->uNewState & LVIS_SELECTED))
+	{
+		m_SelectedItem = pNMLV->iItem;
+		Invalidate();
+	}
+	/*
+	if ((pNMLV->uChanged & LVIF_STATE) && (pNMLV->uOldState & LVNI_SELECTED) && !(pNMLV->uNewState & LVNI_SELECTED))
+	{
+		m_SelectedItem = -1;
+	}
+	*/
+	*pResult = 0;
 }
