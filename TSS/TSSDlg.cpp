@@ -9,7 +9,7 @@
 #include "afxdialogex.h"
 
 #ifdef _DEBUG
-#define new DEBUG_NEW
+//#define new DEBUG_NEW
 #endif
 
 void CStaticImage::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
@@ -28,18 +28,16 @@ LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
 	CDC* pDC = CDC::FromHandle(st->hDC);
 	pDC->TextOutW(100, 100, CString("Hello World!"));
 	*/
-	auto pGraphics = Gdiplus::Graphics::FromHDC(reinterpret_cast<LPDRAWITEMSTRUCT>(wParam)->hDC);
-
 	if (m_SelectedItem == -1) return S_OK;
 	auto f = &m_Files[m_SelectedItem];
-	if (!f->m_pImage) f->m_pImage = Gdiplus::Image::FromFile(f->m_Path);
-	
+	if (!f->m_pImg) f->m_pImg = Gdiplus::Image::FromFile(f->m_Path);
+
 	CRect ir;
 	m_Pic.GetClientRect(&ir);
 	INT bw = ir.Width();
 	INT bh = ir.Height();
-	INT iw = f->m_pImage->GetWidth();
-	INT ih = f->m_pImage->GetHeight();
+	INT iw = f->m_pImg->GetWidth();
+	INT ih = f->m_pImg->GetHeight();
 	INT x = 0;
 	INT y = 0;
 	INT w = 0;
@@ -88,11 +86,84 @@ LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
 		h = ih * bw / iw;
 		y = (bh - h) >> 1;
 	}
+	auto pGraphics = Gdiplus::Graphics::FromHDC(reinterpret_cast<LPDRAWITEMSTRUCT>(wParam)->hDC);
+	pGraphics->DrawImage(f->m_pImg, x, y, w, h);
 
-	return pGraphics->DrawImage(f->m_pImage, x, y, w, h);
+	delete pGraphics;
+	return S_OK;
+}
+void CTSSDlg::CalcHist(SFile* pFile)
+{
+	auto f = pFile;
+	if (f->m_pGfx || f->m_pBmp) return;
+
+	f->m_pBmp = new Gdiplus::Bitmap(f->m_pImg->GetWidth(), f->m_pImg->GetHeight(), f->m_pImg->GetPixelFormat());
+	f->m_pGfx = new Gdiplus::Graphics(f->m_pBmp);
+
+	f->m_pGfx->Clear(Gdiplus::Color::Transparent);
+	f->m_pGfx->DrawImage(f->m_pImg, 0, 0, f->m_pImg->GetWidth(), f->m_pImg->GetHeight());
+
+	Gdiplus::BitmapData bmp_data;
+	f->m_pBmp->LockBits(&Gdiplus::Rect(0, 0, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight()), Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bmp_data);
+
+	UINT* pixels = reinterpret_cast<UINT*>(bmp_data.Scan0);
+	UINT stride = (bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2;
+	UINT y_max = f->m_pBmp->GetHeight();
+	UINT x_max = f->m_pBmp->GetWidth();
+
+	loop(y, y_max)
+	{
+		UINT ys = y * stride;
+
+		loop(x, x_max)
+		{
+			UINT color = pixels[ys + x];
+
+			f->m_Red[(color & 0xFF0000) >> 16]++;
+			f->m_Green[(color & 0xFF00) >> 8]++;
+			f->m_Blue[color & 0xFF]++;
+		}
+	}
+	f->m_pBmp->UnlockBits(&bmp_data);
+
+	UINT max = 0;
+	loop(i, f->m_Red.size()) if (f->m_Red[i] > max) max = f->m_Red[i];
+	loop(i, f->m_Red.size()) f->m_Red[i] = f->m_Red[i] * 255 / max;
+
+	max = 0;
+	loop(i, f->m_Green.size()) if (f->m_Green[i] > max) max = f->m_Green[i];
+	loop(i, f->m_Green.size()) f->m_Green[i] = f->m_Green[i] * 255 / max;
+
+	max = 0;
+	loop(i, f->m_Blue.size()) if (f->m_Blue[i] > max) max = f->m_Blue[i];
+	loop(i, f->m_Blue.size()) f->m_Blue[i] = f->m_Blue[i] * 255 / max;
+
+	return;
 }
 LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 {
+	if (m_SelectedItem == -1) return S_OK;
+	auto f = &m_Files[m_SelectedItem];
+	if (!f->m_pImg) return S_OK;
+
+	if (!f->m_pGfx && !f->m_pBmp)
+	{
+		CalcHist(f);
+	}
+	auto pGraphics = Gdiplus::Graphics::FromHDC(reinterpret_cast<LPDRAWITEMSTRUCT>(wParam)->hDC);
+
+	if (!m_pPenR) m_pPenR = new Gdiplus::Pen(Gdiplus::Color(255, 0, 0), 1.0);
+	if (!m_pPenG) m_pPenG = new Gdiplus::Pen(Gdiplus::Color(0, 255, 0), 1.0);
+	if (!m_pPenB) m_pPenB = new Gdiplus::Pen(Gdiplus::Color(0, 0, 255), 1.0);
+
+	loop(i, 256)
+	{
+		if (m_Red) pGraphics->DrawLine(m_pPenR, i, 255, i, 255 - f->m_Red[i]);
+		if (m_Green) pGraphics->DrawLine(m_pPenG, i, 255, i, 255 - f->m_Green[i]);
+		if (m_Blue) pGraphics->DrawLine(m_pPenB, i, 255, i, 255 - f->m_Blue[i]);
+	}
+	
+	delete pGraphics;
 	return S_OK;
 }
 
@@ -163,6 +234,9 @@ BEGIN_MESSAGE_MAP(CTSSDlg, CDialogEx)
 	ON_MESSAGE(WM_DRAW_IMAGE, &OnDrawImage)
 	ON_MESSAGE(WM_DRAW_HISTOGRAM, &OnDrawHist)
 	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST_FILE, &CTSSDlg::OnLvnItemchangedListFile)
+	ON_COMMAND(ID_HISTOGRAM_R, &CTSSDlg::OnHistogramR)
+	ON_COMMAND(ID_HISTOGRAM_G, &CTSSDlg::OnHistogramG)
+	ON_COMMAND(ID_HISTOGRAM_B, &CTSSDlg::OnHistogramB)
 END_MESSAGE_MAP()
 
 // CTSSDlg message handlers
@@ -270,7 +344,7 @@ bool CTSSDlg::IsFileOpen(SFile* pFile)
 {
 	auto path = pFile->m_Path.GetBuffer();
 
-	loop(m_Files.size())
+	loop(i, m_Files.size())
 	{
 		auto buff = m_Files[i].m_Path.GetBuffer();
 
@@ -290,7 +364,16 @@ void CTSSDlg::OnFileOpen()
 		SFile f;
 		f.m_Path = fd.GetNextPathName(pos);
 		f.m_Name = f.m_Path.Mid(f.m_Path.ReverseFind('\\') + 1);
-		f.m_pImage = nullptr;
+		f.m_pImg = nullptr;
+		f.m_pGfx = nullptr;
+		f.m_pBmp = nullptr;
+
+		loop(_, 256)
+		{
+			f.m_Red.push_back(0);
+			f.m_Green.push_back(0);
+			f.m_Blue.push_back(0);
+		}
 
 		if (!IsFileOpen(&f))
 		{
@@ -306,7 +389,9 @@ void CTSSDlg::OnFileClose()
 	if (m_SelectedItem == -1) return;
 	if (MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
 
-	safe_delete(m_Files[m_SelectedItem].m_pImage);
+	safe_delete(m_Files[m_SelectedItem].m_pImg);
+	safe_delete(m_Files[m_SelectedItem].m_pGfx);
+	safe_delete(m_Files[m_SelectedItem].m_pBmp);
 	m_Files.erase(m_Files.begin() + m_SelectedItem);
 
 	m_FileList.DeleteItem(m_SelectedItem);
@@ -358,11 +443,33 @@ void CTSSDlg::OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult)
 		m_SelectedItem = pNMLV->iItem;
 		Invalidate();
 	}
-	/*
 	if ((pNMLV->uChanged & LVIF_STATE) && (pNMLV->uOldState & LVNI_SELECTED) && !(pNMLV->uNewState & LVNI_SELECTED))
 	{
 		m_SelectedItem = -1;
 	}
-	*/
 	*pResult = 0;
+}
+
+
+void CTSSDlg::OnHistogramR()
+{
+	m_Red ^= 1;
+	GetMenu()->CheckMenuItem(ID_HISTOGRAM_R, m_Red ? MF_CHECKED : MF_UNCHECKED);
+	Invalidate();
+}
+
+
+void CTSSDlg::OnHistogramG()
+{
+	m_Green ^= 1;
+	GetMenu()->CheckMenuItem(ID_HISTOGRAM_G, m_Green ? MF_CHECKED : MF_UNCHECKED);
+	Invalidate();
+}
+
+
+void CTSSDlg::OnHistogramB()
+{
+	m_Blue ^= 1;
+	GetMenu()->CheckMenuItem(ID_HISTOGRAM_B, m_Blue ? MF_CHECKED : MF_UNCHECKED);
+	Invalidate();
 }

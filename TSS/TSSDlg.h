@@ -5,8 +5,8 @@
 #pragma once
 #include <vector>
 
-#define loop(m) for(int i = 0; i < m; i++)
-#define safe_delete(p) if(p) delete p;
+#define loop(var, max) for(UINT (var) = 0; (var) < (max); (var)++)
+#define safe_delete(p) if(p) delete (p);
 
 enum
 {
@@ -27,7 +27,12 @@ struct SFile
 {
 	CString m_Path;
 	CString m_Name;
-	Gdiplus::Image* m_pImage;
+	Gdiplus::Image* m_pImg;
+	Gdiplus::Graphics* m_pGfx;
+	Gdiplus::Bitmap* m_pBmp;
+	std::vector<UINT> m_Red;
+	std::vector<UINT> m_Green;
+	std::vector<UINT> m_Blue;
 };
 
 // CTSSDlg dialog
@@ -77,4 +82,14 @@ public:
 	BOOL PreTranslateMessage(PMSG pMsg);
 	afx_msg void OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult);
 	int m_SelectedItem = -1;
+	afx_msg void OnHistogramR();
+	afx_msg void OnHistogramG();
+	afx_msg void OnHistogramB();
+	bool m_Red = 1;
+	bool m_Green = 1;
+	bool m_Blue = 1;
+	Gdiplus::Pen* m_pPenR;
+	Gdiplus::Pen* m_pPenG;
+	Gdiplus::Pen* m_pPenB;
+	void CalcHist(SFile* pFile);
 };
