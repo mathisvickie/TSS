@@ -378,6 +378,18 @@ void CTSSDlg::OnFileOpen()
 void CTSSDlg::OnFileClose()
 {
 	if (m_SelectedItem == -1) return;
+
+	loop(i, m_Files.size())
+	{
+		auto f = &m_Files[i];
+
+		if (f->m_pGfx && f->m_pBmp && !f->m_bHistReady)
+		{
+			MessageBoxA(nullptr, "Please wait until all histograms are calculated.", "Calculation in progress", MB_OK | MB_ICONEXCLAMATION | MB_TOPMOST);
+			return;
+		}
+	}
+
 	if (MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
 
 	safe_delete(m_Files[m_SelectedItem].m_pImg);
