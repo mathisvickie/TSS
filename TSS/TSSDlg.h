@@ -33,6 +33,7 @@ struct SFile
 	std::vector<UINT> m_Red;
 	std::vector<UINT> m_Green;
 	std::vector<UINT> m_Blue;
+	bool m_bHistReady;
 };
 
 // CTSSDlg dialog
@@ -91,5 +92,4 @@ public:
 	Gdiplus::Pen* m_pPenR;
 	Gdiplus::Pen* m_pPenG;
 	Gdiplus::Pen* m_pPenB;
-	void CalcHist(SFile* pFile);
 };

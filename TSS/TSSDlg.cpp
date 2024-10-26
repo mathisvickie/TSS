@@ -8,6 +8,8 @@
 #include "TSSDlg.h"
 #include "afxdialogex.h"
 
+#include "Library.h"
+
 #ifdef _DEBUG
 //#define new DEBUG_NEW
 #endif
@@ -92,75 +94,63 @@ LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
 	delete pGraphics;
 	return S_OK;
 }
-void CTSSDlg::CalcHist(SFile* pFile)
-{
-	auto f = pFile;
-	if (f->m_pGfx || f->m_pBmp) return;
-
-	f->m_pBmp = new Gdiplus::Bitmap(f->m_pImg->GetWidth(), f->m_pImg->GetHeight(), f->m_pImg->GetPixelFormat());
-	f->m_pGfx = new Gdiplus::Graphics(f->m_pBmp);
-
-	f->m_pGfx->Clear(Gdiplus::Color::Transparent);
-	f->m_pGfx->DrawImage(f->m_pImg, 0, 0, f->m_pImg->GetWidth(), f->m_pImg->GetHeight());
-
-	Gdiplus::BitmapData bmp_data;
-	f->m_pBmp->LockBits(&Gdiplus::Rect(0, 0, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight()), Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bmp_data);
-
-	UINT* pixels = reinterpret_cast<UINT*>(bmp_data.Scan0);
-	UINT stride = (bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2;
-	UINT y_max = f->m_pBmp->GetHeight();
-	UINT x_max = f->m_pBmp->GetWidth();
-
-	loop(y, y_max)
-	{
-		UINT ys = y * stride;
-
-		loop(x, x_max)
-		{
-			UINT color = pixels[ys + x];
-
-			f->m_Red[(color & 0xFF0000) >> 16]++;
-			f->m_Green[(color & 0xFF00) >> 8]++;
-			f->m_Blue[color & 0xFF]++;
-		}
-	}
-	f->m_pBmp->UnlockBits(&bmp_data);
-
-	UINT max = 0;
-	loop(i, f->m_Red.size()) if (f->m_Red[i] > max) max = f->m_Red[i];
-	loop(i, f->m_Red.size()) f->m_Red[i] = f->m_Red[i] * 255 / max;
-
-	max = 0;
-	loop(i, f->m_Green.size()) if (f->m_Green[i] > max) max = f->m_Green[i];
-	loop(i, f->m_Green.size()) f->m_Green[i] = f->m_Green[i] * 255 / max;
-
-	max = 0;
-	loop(i, f->m_Blue.size()) if (f->m_Blue[i] > max) max = f->m_Blue[i];
-	loop(i, f->m_Blue.size()) f->m_Blue[i] = f->m_Blue[i] * 255 / max;
-
-	return;
-}
 LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 {
 	if (m_SelectedItem == -1) return S_OK;
 	auto f = &m_Files[m_SelectedItem];
 	if (!f->m_pImg) return S_OK;
 
-	if (!f->m_pGfx && !f->m_pBmp)
+	if (!f->m_pGfx && !f->m_pBmp && !f->m_bHistReady)
 	{
-		CalcHist(f);
+		f->m_pBmp = new Gdiplus::Bitmap(f->m_pImg->GetWidth(), f->m_pImg->GetHeight(), f->m_pImg->GetPixelFormat());
+		f->m_pGfx = new Gdiplus::Graphics(f->m_pBmp);
+
+		f->m_pGfx->Clear(Gdiplus::Color::Transparent);
+		f->m_pGfx->DrawImage(f->m_pImg, 0, 0, f->m_pImg->GetWidth(), f->m_pImg->GetHeight());
+
+		Gdiplus::BitmapData bmp_data;
+		f->m_pBmp->LockBits(&Gdiplus::Rect(0, 0, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight()), Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bmp_data);
+
+		/*::CalcHist(reinterpret_cast<UINT*>(bmp_data.Scan0), (UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2,
+			f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight(), &f->m_Red, &f->m_Green, &f->m_Blue);
+
+		f->m_pBmp->UnlockBits(&bmp_data);*/
+		
+		SHistThreadParams* pThreadParams = reinterpret_cast<SHistThreadParams*>(::malloc(sizeof(SHistThreadParams)));
+		pThreadParams->hwnd = GetParent()->GetSafeHwnd();
+		pThreadParams->pixels = reinterpret_cast<UINT*>(bmp_data.Scan0);
+		pThreadParams->stride = (UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2;
+		pThreadParams->x_max = f->m_pBmp->GetWidth();
+		pThreadParams->y_max = f->m_pBmp->GetHeight();
+		pThreadParams->red = &f->m_Red;
+		pThreadParams->green = &f->m_Green;
+		pThreadParams->blue = &f->m_Blue;
+		pThreadParams->bReady = &f->m_bHistReady;
+
+		::CloseHandle(::CreateThread(nullptr, NULL, ::CalcHistThread, pThreadParams, NULL, nullptr));
+		return S_OK;
 	}
+	if (!f->m_bHistReady) return S_OK;
 	auto pGraphics = Gdiplus::Graphics::FromHDC(reinterpret_cast<LPDRAWITEMSTRUCT>(wParam)->hDC);
 
 	if (!m_pPenR) m_pPenR = new Gdiplus::Pen(Gdiplus::Color(255, 0, 0), 1.0);
 	if (!m_pPenG) m_pPenG = new Gdiplus::Pen(Gdiplus::Color(0, 255, 0), 1.0);
 	if (!m_pPenB) m_pPenB = new Gdiplus::Pen(Gdiplus::Color(0, 0, 255), 1.0);
-
+	
+	CRect hr;
+	m_Hist.GetClientRect(&hr);
+	auto w = static_cast<Gdiplus::REAL>(hr.Width());
+	auto h = static_cast<Gdiplus::REAL>(hr.Height());
+	auto xs = w / 255.f;
+	auto ys = h / 255.f;
+	
 	loop(i, 256)
 	{
-		if (m_Red) pGraphics->DrawLine(m_pPenR, i, 255, i, 255 - f->m_Red[i]);
-		if (m_Green) pGraphics->DrawLine(m_pPenG, i, 255, i, 255 - f->m_Green[i]);
-		if (m_Blue) pGraphics->DrawLine(m_pPenB, i, 255, i, 255 - f->m_Blue[i]);
+		auto x = static_cast<Gdiplus::REAL>(i) * xs;
+
+		if (m_Red) pGraphics->DrawLine(m_pPenR, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_Red[i]));
+		if (m_Green) pGraphics->DrawLine(m_pPenG, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_Green[i]));
+		if (m_Blue) pGraphics->DrawLine(m_pPenB, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_Blue[i]));
 	}
 	
 	delete pGraphics;
@@ -374,6 +364,7 @@ void CTSSDlg::OnFileOpen()
 			f.m_Green.push_back(0);
 			f.m_Blue.push_back(0);
 		}
+		f.m_bHistReady = FALSE;
 
 		if (!IsFileOpen(&f))
 		{
