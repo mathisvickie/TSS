@@ -385,7 +385,7 @@ void CTSSDlg::OnFileClose()
 
 		if (f->m_pGfx && f->m_pBmp && !f->m_bHistReady)
 		{
-			MessageBoxA(nullptr, "Please wait until all histograms are calculated.", "Calculation in progress", MB_OK | MB_ICONEXCLAMATION | MB_TOPMOST);
+			MessageBoxA(nullptr, "Please wait until all calculations are finished.", "Calculation in progress", MB_OK | MB_ICONEXCLAMATION | MB_TOPMOST);
 			return;
 		}
 	}
@@ -400,6 +400,7 @@ void CTSSDlg::OnFileClose()
 	m_FileList.DeleteItem(m_SelectedItem);
 	m_FileList.SetItemState(0, LVIS_SELECTED, LVIS_SELECTED);
 	m_FileList.SetSelectionMark(0);
+	Invalidate();
 }
 
 
