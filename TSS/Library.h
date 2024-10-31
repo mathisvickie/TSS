@@ -1,5 +1,5 @@
-#ifndef LIBRARY_H
-#define LIBRARY_H
+#ifndef _LIBRARY_H_
+#define _LIBRARY_H_
 #include <Windows.h>
 #include <vector>
 #ifndef loop
@@ -33,31 +33,6 @@ void CalcHist(UINT* pixels, UINT stride, UINT x_max, UINT y_max, std::vector<UIN
 	max = 0;
 	loop(i, blue[0].size()) if (blue[0][i] > max) max = blue[0][i];
 	loop(i, blue[0].size()) blue[0][i] = blue[0][i] * 255 / max;
-}
-
-struct SHistThreadParams
-{
-	HWND hwnd;
-	UINT* pixels;
-	UINT stride;
-	UINT x_max;
-	UINT y_max;
-	std::vector<UINT>* red;
-	std::vector<UINT>* green;
-	std::vector<UINT>* blue;
-	bool* bReady;
-};
-
-DWORD WINAPI CalcHistThread(LPVOID lpParam)
-{
-	auto p = reinterpret_cast<SHistThreadParams*>(lpParam);
-
-	::CalcHist(p->pixels, p->stride, p->x_max, p->y_max, p->red, p->green, p->blue);
-	*p->bReady = TRUE;
-
-	::InvalidateRect(p->hwnd, NULL, TRUE);
-	::free(p);
-	return NULL;
 }
 
 #endif

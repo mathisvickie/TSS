@@ -111,23 +111,10 @@ LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 		Gdiplus::BitmapData bmp_data;
 		f->m_pBmp->LockBits(&Gdiplus::Rect(0, 0, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight()), Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bmp_data);
 
-		/*::CalcHist(reinterpret_cast<UINT*>(bmp_data.Scan0), (UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2,
-			f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight(), &f->m_Red, &f->m_Green, &f->m_Blue);
-
-		f->m_pBmp->UnlockBits(&bmp_data);*/
-		
-		SHistThreadParams* pThreadParams = reinterpret_cast<SHistThreadParams*>(::malloc(sizeof(SHistThreadParams)));
-		pThreadParams->hwnd = GetParent()->GetSafeHwnd();
-		pThreadParams->pixels = reinterpret_cast<UINT*>(bmp_data.Scan0);
-		pThreadParams->stride = (UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2;
-		pThreadParams->x_max = f->m_pBmp->GetWidth();
-		pThreadParams->y_max = f->m_pBmp->GetHeight();
-		pThreadParams->red = &f->m_Red;
-		pThreadParams->green = &f->m_Green;
-		pThreadParams->blue = &f->m_Blue;
-		pThreadParams->bReady = &f->m_bHistReady;
-
-		::CloseHandle(::CreateThread(nullptr, NULL, ::CalcHistThread, pThreadParams, NULL, nullptr));
+		::CloseHandle(::CreateThread(nullptr, NULL, CTSSDlg::CalcHistThread, new CHistThreadParams(
+				GetSafeHwnd(), reinterpret_cast<UINT*>(bmp_data.Scan0), (UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2,
+				f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight(), &f->m_Red, &f->m_Green, &f->m_Blue, &f->m_bHistReady),
+			NULL, nullptr));
 		return S_OK;
 	}
 	if (!f->m_bHistReady) return S_OK;
@@ -154,6 +141,25 @@ LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 	}
 	
 	delete pGraphics;
+	return S_OK;
+}
+DWORD WINAPI CTSSDlg::CalcHistThread(LPVOID lpParam)
+{
+	auto p = reinterpret_cast<CHistThreadParams*>(lpParam);
+
+	::CalcHist(p->pixels, p->stride, p->x_max, p->y_max, p->red, p->green, p->blue);
+	*p->bReady = TRUE;
+	::SendMessageW(p->hwnd, WM_INVALIDATE, 0, 0);
+
+	delete p;
+	return NULL;
+}
+LRESULT CTSSDlg::OnMsgInvalidate(WPARAM wParam, LPARAM lParam)
+{
+	UNREFERENCED_PARAMETER(wParam);
+	UNREFERENCED_PARAMETER(lParam);
+
+	Invalidate();
 	return S_OK;
 }
 
@@ -227,6 +233,7 @@ BEGIN_MESSAGE_MAP(CTSSDlg, CDialogEx)
 	ON_COMMAND(ID_HISTOGRAM_R, &CTSSDlg::OnHistogramR)
 	ON_COMMAND(ID_HISTOGRAM_G, &CTSSDlg::OnHistogramG)
 	ON_COMMAND(ID_HISTOGRAM_B, &CTSSDlg::OnHistogramB)
+	ON_MESSAGE(WM_INVALIDATE, &OnMsgInvalidate)
 END_MESSAGE_MAP()
 
 // CTSSDlg message handlers
@@ -330,7 +337,7 @@ HCURSOR CTSSDlg::OnQueryDragIcon()
 }
 
 
-bool CTSSDlg::IsFileOpen(SFile* pFile)
+bool CTSSDlg::IsFileOpen(CTSSFile* pFile)
 {
 	auto path = pFile->m_Path.GetBuffer();
 
@@ -351,20 +358,7 @@ void CTSSDlg::OnFileOpen()
 	POSITION pos(fd.GetStartPosition());
 	while (pos)
 	{
-		SFile f;
-		f.m_Path = fd.GetNextPathName(pos);
-		f.m_Name = f.m_Path.Mid(f.m_Path.ReverseFind('\\') + 1);
-		f.m_pImg = nullptr;
-		f.m_pGfx = nullptr;
-		f.m_pBmp = nullptr;
-
-		loop(_, 256)
-		{
-			f.m_Red.push_back(0);
-			f.m_Green.push_back(0);
-			f.m_Blue.push_back(0);
-		}
-		f.m_bHistReady = FALSE;
+		CTSSFile f(fd.GetNextPathName(pos));
 
 		if (!IsFileOpen(&f))
 		{
@@ -389,7 +383,6 @@ void CTSSDlg::OnFileClose()
 			return;
 		}
 	}
-
 	if (MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
 
 	safe_delete(m_Files[m_SelectedItem].m_pImg);
@@ -430,7 +423,6 @@ void CTSSDlg::OnFileExit()
 {
 	CTSSDlg::OnCancel();
 }
-
 
 void CTSSDlg::OnFileSave()
 {
