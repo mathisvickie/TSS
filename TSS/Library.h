@@ -15,7 +15,6 @@ void CalcHist(UINT* pixels, UINT stride, UINT x_max, UINT y_max, std::vector<UIN
 		loop(x, x_max)
 		{
 			UINT color = pixels[ys + x];
-
 			red[0][(color & 0xFF0000) >> 16]++;
 			green[0][(color & 0xFF00) >> 8]++;
 			blue[0][color & 0xFF]++;

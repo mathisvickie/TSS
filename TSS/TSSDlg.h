@@ -12,7 +12,7 @@ enum
 {
 	WM_DRAW_IMAGE = WM_USER + 1,
 	WM_DRAW_HISTOGRAM,
-	WM_INVALIDATE
+	WM_HISTOGRAM_READY
 };
 
 class CStaticImage : public CStatic
@@ -27,10 +27,38 @@ class CStaticHist : public CStatic
 class CTSSFile
 {
 public:
-	CTSSFile(CString path):m_Path(path), m_pImg(nullptr), m_pGfx(nullptr), m_pBmp(nullptr), m_bHistReady(FALSE)
+	CTSSFile(CString path):m_Path(path), m_pImg(nullptr), m_pGfx(nullptr), m_pBmp(nullptr), m_hThread(nullptr), m_pHTR(nullptr)
 	{
 		m_Name = m_Path.Mid(m_Path.ReverseFind('\\') + 1);
+	}
+	CString m_Path;
+	CString m_Name;
+	Gdiplus::Image* m_pImg;
+	Gdiplus::Graphics* m_pGfx;
+	Gdiplus::Bitmap* m_pBmp;
+	HANDLE m_hThread;
+	class CHistThreadReturn* m_pHTR;
+};
 
+class CHistThreadParam
+{
+public:
+	CHistThreadParam(CString path, HWND hw, UINT* p, UINT s, UINT xm, UINT ym, volatile PHANDLE ph)
+		:m_Path(path), m_hwnd(hw), m_pPixels(p), m_stride(s), m_xmax(xm), m_ymax(ym), m_phThread(ph) { }
+	CString m_Path;
+	HWND m_hwnd;
+	UINT* m_pPixels;
+	UINT m_stride;
+	UINT m_xmax;
+	UINT m_ymax;
+	volatile PHANDLE m_phThread;
+};
+
+class CHistThreadReturn
+{
+public:
+	CHistThreadReturn(CString path):m_Path(path)
+	{
 		loop(_, 256)
 		{
 			m_Red.push_back(0);
@@ -39,30 +67,9 @@ public:
 		}
 	}
 	CString m_Path;
-	CString m_Name;
-	Gdiplus::Image* m_pImg;
-	Gdiplus::Graphics* m_pGfx;
-	Gdiplus::Bitmap* m_pBmp;
 	std::vector<UINT> m_Red;
 	std::vector<UINT> m_Green;
 	std::vector<UINT> m_Blue;
-	bool m_bHistReady;
-};
-
-class CHistThreadParams
-{
-public:
-	CHistThreadParams(HWND hw, UINT* p, UINT s, UINT xm, UINT ym, std::vector<UINT>* r, std::vector<UINT>* g, std::vector<UINT>* b, bool* br)
-		:hwnd(hw), pixels(p), stride(s), x_max(xm), y_max(ym), red(r), green(g), blue(b), bReady(br) { }
-	HWND hwnd;
-	UINT* pixels;
-	UINT stride;
-	UINT x_max;
-	UINT y_max;
-	std::vector<UINT>* red;
-	std::vector<UINT>* green;
-	std::vector<UINT>* blue;
-	bool* bReady;
 };
 
 // CTSSDlg dialog
@@ -122,5 +129,5 @@ public:
 	Gdiplus::Pen* m_pPenG;
 	Gdiplus::Pen* m_pPenB;
 	static DWORD WINAPI CalcHistThread(LPVOID lpParam);
-	afx_msg LRESULT OnMsgInvalidate(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnMsgHistReady(WPARAM wParam, LPARAM lParam);
 };

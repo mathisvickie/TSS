@@ -100,7 +100,7 @@ LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 	auto f = &m_Files[m_SelectedItem];
 	if (!f->m_pImg) return S_OK;
 
-	if (!f->m_pGfx && !f->m_pBmp && !f->m_bHistReady)
+	if (!f->m_pGfx && !f->m_pBmp && !f->m_hThread && !f->m_pHTR)
 	{
 		f->m_pBmp = new Gdiplus::Bitmap(f->m_pImg->GetWidth(), f->m_pImg->GetHeight(), f->m_pImg->GetPixelFormat());
 		f->m_pGfx = new Gdiplus::Graphics(f->m_pBmp);
@@ -111,13 +111,15 @@ LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 		Gdiplus::BitmapData bmp_data;
 		f->m_pBmp->LockBits(&Gdiplus::Rect(0, 0, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight()), Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bmp_data);
 
-		::CloseHandle(::CreateThread(nullptr, NULL, CTSSDlg::CalcHistThread, new CHistThreadParams(
-				GetSafeHwnd(), reinterpret_cast<UINT*>(bmp_data.Scan0), (UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2,
-				f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight(), &f->m_Red, &f->m_Green, &f->m_Blue, &f->m_bHistReady),
-			NULL, nullptr));
+		auto pThreadParam = new CHistThreadParam(f->m_Path, GetSafeHwnd(), reinterpret_cast<UINT*>(bmp_data.Scan0),
+			(UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight(), nullptr);
+
+		f->m_hThread = ::CreateThread(nullptr, NULL, CTSSDlg::CalcHistThread, pThreadParam, NULL, nullptr);
+		pThreadParam->m_phThread = &f->m_hThread;
+
 		return S_OK;
 	}
-	if (!f->m_bHistReady) return S_OK;
+	if (f->m_hThread || !f->m_pHTR) return S_OK;
 	auto pGraphics = Gdiplus::Graphics::FromHDC(reinterpret_cast<LPDRAWITEMSTRUCT>(wParam)->hDC);
 
 	if (!m_pPenR) m_pPenR = new Gdiplus::Pen(Gdiplus::Color(255, 0, 0), 1.0);
@@ -135,9 +137,9 @@ LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 	{
 		auto x = static_cast<Gdiplus::REAL>(i) * xs;
 
-		if (m_Red) pGraphics->DrawLine(m_pPenR, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_Red[i]));
-		if (m_Green) pGraphics->DrawLine(m_pPenG, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_Green[i]));
-		if (m_Blue) pGraphics->DrawLine(m_pPenB, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_Blue[i]));
+		if (m_Red) pGraphics->DrawLine(m_pPenR, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_Red[i]));
+		if (m_Green) pGraphics->DrawLine(m_pPenG, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_Green[i]));
+		if (m_Blue) pGraphics->DrawLine(m_pPenB, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_Blue[i]));
 	}
 	
 	delete pGraphics;
@@ -145,19 +147,36 @@ LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 }
 DWORD WINAPI CTSSDlg::CalcHistThread(LPVOID lpParam)
 {
-	auto p = reinterpret_cast<CHistThreadParams*>(lpParam);
+	auto p = reinterpret_cast<CHistThreadParam*>(lpParam);
+	auto pThreadReturn = new CHistThreadReturn(p->m_Path);
 
-	::CalcHist(p->pixels, p->stride, p->x_max, p->y_max, p->red, p->green, p->blue);
-	*p->bReady = TRUE;
-	::SendMessageW(p->hwnd, WM_INVALIDATE, 0, 0);
+	::CalcHist(p->m_pPixels, p->m_stride, p->m_xmax, p->m_ymax, &pThreadReturn->m_Red, &pThreadReturn->m_Green, &pThreadReturn->m_Blue);
 
+	while (!p->m_phThread) ::SwitchToThread();
+	::CloseHandle(p->m_phThread[0]);
+	p->m_phThread[0] = nullptr;
+
+	::SendMessageW(p->m_hwnd, WM_HISTOGRAM_READY, (WPARAM)pThreadReturn, 0);
 	delete p;
 	return NULL;
 }
-LRESULT CTSSDlg::OnMsgInvalidate(WPARAM wParam, LPARAM lParam)
+LRESULT CTSSDlg::OnMsgHistReady(WPARAM wParam, LPARAM lParam)
 {
-	UNREFERENCED_PARAMETER(wParam);
 	UNREFERENCED_PARAMETER(lParam);
+
+	auto pThreadReturn = reinterpret_cast<CHistThreadReturn*>(wParam);
+	auto path = pThreadReturn->m_Path.GetBuffer();
+
+	loop(i, m_Files.size())
+	{
+		auto buff = m_Files[i].m_Path.GetBuffer();
+
+		if (!wcscmp(buff, path))
+		{
+			m_Files[i].m_pHTR = pThreadReturn;
+			break;
+		}
+	}
 
 	Invalidate();
 	return S_OK;
@@ -233,7 +252,7 @@ BEGIN_MESSAGE_MAP(CTSSDlg, CDialogEx)
 	ON_COMMAND(ID_HISTOGRAM_R, &CTSSDlg::OnHistogramR)
 	ON_COMMAND(ID_HISTOGRAM_G, &CTSSDlg::OnHistogramG)
 	ON_COMMAND(ID_HISTOGRAM_B, &CTSSDlg::OnHistogramB)
-	ON_MESSAGE(WM_INVALIDATE, &OnMsgInvalidate)
+	ON_MESSAGE(WM_HISTOGRAM_READY, &OnMsgHistReady)
 END_MESSAGE_MAP()
 
 // CTSSDlg message handlers
@@ -372,22 +391,23 @@ void CTSSDlg::OnFileOpen()
 void CTSSDlg::OnFileClose()
 {
 	if (m_SelectedItem == -1) return;
+	auto f = &m_Files[m_SelectedItem];
 
-	loop(i, m_Files.size())
-	{
-		auto f = &m_Files[i];
-
-		if (f->m_pGfx && f->m_pBmp && !f->m_bHistReady)
-		{
-			MessageBoxA(nullptr, "Please wait until all calculations are finished.", "Calculation in progress", MB_OK | MB_ICONEXCLAMATION | MB_TOPMOST);
-			return;
-		}
-	}
 	if (MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
 
-	safe_delete(m_Files[m_SelectedItem].m_pImg);
-	safe_delete(m_Files[m_SelectedItem].m_pGfx);
-	safe_delete(m_Files[m_SelectedItem].m_pBmp);
+	if (f->m_hThread)
+	{
+		::SuspendThread(f->m_hThread);
+		::TerminateThread(f->m_hThread, 6);
+		::WaitForSingleObject(f->m_hThread, INFINITE);
+		::CloseHandle(f->m_hThread);
+		f->m_hThread = nullptr;
+	}
+
+	safe_delete(f->m_pImg);
+	safe_delete(f->m_pGfx);
+	safe_delete(f->m_pBmp);
+	safe_delete(f->m_pHTR);
 	m_Files.erase(m_Files.begin() + m_SelectedItem);
 
 	m_FileList.DeleteItem(m_SelectedItem);
