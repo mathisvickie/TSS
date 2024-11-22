@@ -21,13 +21,16 @@
 #define ID_HISTOGRAM_R                  32777
 #define ID_HISTOGRAM_G                  32778
 #define ID_HISTOGRAM_B                  32779
+#define ID_IMAGE_R                      32780
+#define ID_IMAGE_G                      32781
+#define ID_IMAGE_B                      32782
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        132
-#define _APS_NEXT_COMMAND_VALUE         32780
+#define _APS_NEXT_COMMAND_VALUE         32783
 #define _APS_NEXT_CONTROL_VALUE         1005
 #define _APS_NEXT_SYMED_VALUE           101
 #endif

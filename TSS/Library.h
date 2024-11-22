@@ -3,7 +3,7 @@
 #include <Windows.h>
 #include <vector>
 #ifndef loop
-#define loop(var, max) for(UINT (var) = 0; (var) < (max); (var)++)
+#define loop(v, m) for(UINT (v) = 0; (v) < (m); (v)++)
 #endif
 
 void CalcHist(UINT* pixels, UINT stride, UINT x_max, UINT y_max, std::vector<UINT>* red, std::vector<UINT>* green, std::vector<UINT>* blue)
@@ -11,7 +11,7 @@ void CalcHist(UINT* pixels, UINT stride, UINT x_max, UINT y_max, std::vector<UIN
 	loop(y, y_max)
 	{
 		UINT ys = y * stride;
-
+		
 		loop(x, x_max)
 		{
 			UINT color = pixels[ys + x];

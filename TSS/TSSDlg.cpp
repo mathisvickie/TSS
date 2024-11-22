@@ -34,6 +34,17 @@ LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
 	auto f = &m_Files[m_SelectedItem];
 	if (!f->m_pImg) f->m_pImg = Gdiplus::Image::FromFile(f->m_Path);
 
+	if (!f->m_hPicThread && !f->m_pITR)
+	{
+		auto pThreadParam = new CPicThreadParam(f->m_Path, GetSafeHwnd(), f->m_pImg, nullptr);
+
+		f->m_hPicThread = ::CreateThread(nullptr, NULL, CTSSDlg::CalcPicThread, pThreadParam, NULL, nullptr);
+		pThreadParam->m_vphThread = &f->m_hPicThread;
+
+		return S_OK;
+	}
+	if (f->m_hPicThread || !f->m_pITR) return S_OK;
+
 	CRect ir;
 	m_Pic.GetClientRect(&ir);
 	INT bw = ir.Width();
@@ -89,18 +100,117 @@ LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
 		y = (bh - h) >> 1;
 	}
 	auto pGraphics = Gdiplus::Graphics::FromHDC(reinterpret_cast<LPDRAWITEMSTRUCT>(wParam)->hDC);
-	pGraphics->DrawImage(f->m_pImg, x, y, w, h);
+	Gdiplus::Image* pImg = nullptr;
 
-	delete pGraphics;
+	if (m_bPicR && !m_bPicG && !m_bPicB) pImg = f->m_pITR->m_pImgR;
+	if (!m_bPicR && m_bPicG && !m_bPicB) pImg = f->m_pITR->m_pImgG;
+	if (!m_bPicR && !m_bPicG && m_bPicB) pImg = f->m_pITR->m_pImgB;
+
+	if (m_bPicR && m_bPicG && !m_bPicB) pImg = f->m_pITR->m_pImgRG;
+	if (m_bPicR && !m_bPicG && m_bPicB) pImg = f->m_pITR->m_pImgRB;
+	if (!m_bPicR && m_bPicG && m_bPicB) pImg = f->m_pITR->m_pImgGB;
+
+	if (m_bPicR && m_bPicG && m_bPicB) pImg = f->m_pImg;
+	if (pImg) pGraphics->DrawImage(pImg, x, y, w, h);
+
+	safe_delete(pGraphics);
 	return S_OK;
 }
+void WINAPI CTSSDlg::RemovePicChannel(LPVOID pPic, bool bR, bool bG, bool bB)
+{
+	auto pImg = reinterpret_cast<Gdiplus::Image*>(pPic);
+	UINT mask = 0xFF0000 * (UINT)bR + 0xFF00 * (UINT)bG + 0xFF * (UINT)bB;
+
+	auto pBmp = new Gdiplus::Bitmap(pImg->GetWidth(), pImg->GetHeight(), pImg->GetPixelFormat());
+	auto pGfx = new Gdiplus::Graphics(pBmp);
+
+	pGfx->Clear(Gdiplus::Color::Transparent);
+	pGfx->DrawImage(pImg, 0, 0, pImg->GetWidth(), pImg->GetHeight());
+
+	Gdiplus::BitmapData bmp_data;
+	pBmp->LockBits(&Gdiplus::Rect(0, 0, pBmp->GetWidth(), pBmp->GetHeight()), Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bmp_data);
+
+	auto pixels = reinterpret_cast<UINT*>(bmp_data.Scan0);
+	auto stride = (UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2;
+	auto x_max = pBmp->GetWidth();
+	auto y_max = pBmp->GetHeight();
+
+	loop(y, y_max)
+	{
+		UINT ys = y * stride;
+
+		loop(x, x_max)
+		{
+			pixels[ys + x] &= mask;
+		}
+	}
+	pBmp->UnlockBits(&bmp_data);
+	safe_delete(pGfx);
+	safe_delete(pBmp);
+}
+DWORD WINAPI CTSSDlg::CalcPicThread(LPVOID lpParam)
+{
+	auto p = reinterpret_cast<CPicThreadParam*>(lpParam);
+	auto pThreadReturn = new CPicThreadReturn(p->m_Path);
+
+	pThreadReturn->m_pImgR = p->m_pImg->Clone();
+	pThreadReturn->m_pImgG = p->m_pImg->Clone();
+	pThreadReturn->m_pImgB = p->m_pImg->Clone();
+	pThreadReturn->m_pImgRG = p->m_pImg->Clone();
+	pThreadReturn->m_pImgRB = p->m_pImg->Clone();
+	pThreadReturn->m_pImgGB = p->m_pImg->Clone();
+
+	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgR, 1, 0, 0);
+	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgG, 0, 1, 0);
+	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgB, 0, 0, 1);
+	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgRG, 1, 1, 0);
+	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgRB, 1, 0, 1);
+	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgGB, 0, 1, 1);
+
+	while (!p->m_vphThread) ::SwitchToThread();
+	::CloseHandle(p->m_vphThread[0]);
+	p->m_vphThread[0] = nullptr;
+
+	::SendMessageW(p->m_hWnd, WM_PICTURE_READY, (WPARAM)pThreadReturn, 0);
+	safe_delete(p);
+	return NULL;
+}
+LRESULT CTSSDlg::OnMsgPicReady(WPARAM wParam, LPARAM lParam)
+{
+	UNREFERENCED_PARAMETER(lParam);
+
+	auto pThreadReturn = reinterpret_cast<CPicThreadReturn*>(wParam);
+	auto path = pThreadReturn->m_Path.GetBuffer();
+
+	loop(i, m_Files.size())
+	{
+		auto buff = m_Files[i].m_Path.GetBuffer();
+
+		if (!wcscmp(buff, path))
+		{
+			m_Files[i].m_pITR = pThreadReturn;
+			Invalidate();
+			return S_OK;
+		}
+	}
+	safe_delete(pThreadReturn->m_pImgR);
+	safe_delete(pThreadReturn->m_pImgG);
+	safe_delete(pThreadReturn->m_pImgB);
+	safe_delete(pThreadReturn->m_pImgRG);
+	safe_delete(pThreadReturn->m_pImgRB);
+	safe_delete(pThreadReturn->m_pImgGB);
+
+	safe_delete(pThreadReturn);
+	return S_OK;
+}
+
 LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 {
 	if (m_SelectedItem == -1) return S_OK;
 	auto f = &m_Files[m_SelectedItem];
 	if (!f->m_pImg) return S_OK;
 
-	if (!f->m_pGfx && !f->m_pBmp && !f->m_hThread && !f->m_pHTR)
+	if (!f->m_pGfx && !f->m_pBmp && !f->m_hHistThread && !f->m_pHTR)
 	{
 		f->m_pBmp = new Gdiplus::Bitmap(f->m_pImg->GetWidth(), f->m_pImg->GetHeight(), f->m_pImg->GetPixelFormat());
 		f->m_pGfx = new Gdiplus::Graphics(f->m_pBmp);
@@ -108,23 +218,23 @@ LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 		f->m_pGfx->Clear(Gdiplus::Color::Transparent);
 		f->m_pGfx->DrawImage(f->m_pImg, 0, 0, f->m_pImg->GetWidth(), f->m_pImg->GetHeight());
 
-		Gdiplus::BitmapData bmp_data;
-		f->m_pBmp->LockBits(&Gdiplus::Rect(0, 0, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight()), Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bmp_data);
+		auto pBmpData = new Gdiplus::BitmapData();
+		f->m_pBmp->LockBits(&Gdiplus::Rect(0, 0, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight()), Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, pBmpData);
 
-		auto pThreadParam = new CHistThreadParam(f->m_Path, GetSafeHwnd(), reinterpret_cast<UINT*>(bmp_data.Scan0),
-			(UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight(), nullptr);
+		auto pThreadParam = new CHistThreadParam(f->m_Path, GetSafeHwnd(), f->m_pBmp, pBmpData, reinterpret_cast<UINT*>(pBmpData->Scan0),
+			(UINT)(pBmpData->Stride >= 0 ? pBmpData->Stride : -pBmpData->Stride) >> 2, f->m_pBmp->GetWidth(), f->m_pBmp->GetHeight(), nullptr);
 
-		f->m_hThread = ::CreateThread(nullptr, NULL, CTSSDlg::CalcHistThread, pThreadParam, NULL, nullptr);
-		pThreadParam->m_phThread = &f->m_hThread;
+		f->m_hHistThread = ::CreateThread(nullptr, NULL, CTSSDlg::CalcHistThread, pThreadParam, NULL, nullptr);
+		pThreadParam->m_vphThread = &f->m_hHistThread;
 
 		return S_OK;
 	}
-	if (f->m_hThread || !f->m_pHTR) return S_OK;
+	if (f->m_hHistThread || !f->m_pHTR) return S_OK;
 	auto pGraphics = Gdiplus::Graphics::FromHDC(reinterpret_cast<LPDRAWITEMSTRUCT>(wParam)->hDC);
 
-	if (!m_pPenR) m_pPenR = new Gdiplus::Pen(Gdiplus::Color(255, 0, 0), 1.0);
-	if (!m_pPenG) m_pPenG = new Gdiplus::Pen(Gdiplus::Color(0, 255, 0), 1.0);
-	if (!m_pPenB) m_pPenB = new Gdiplus::Pen(Gdiplus::Color(0, 0, 255), 1.0);
+	if (!m_pPenHistR) m_pPenHistR = new Gdiplus::Pen(Gdiplus::Color(255, 0, 0), 1.0);
+	if (!m_pPenHistG) m_pPenHistG = new Gdiplus::Pen(Gdiplus::Color(0, 255, 0), 1.0);
+	if (!m_pPenHistB) m_pPenHistB = new Gdiplus::Pen(Gdiplus::Color(0, 0, 255), 1.0);
 	
 	CRect hr;
 	m_Hist.GetClientRect(&hr);
@@ -137,12 +247,12 @@ LRESULT CTSSDlg::OnDrawHist(WPARAM wParam, LPARAM lParam)
 	{
 		auto x = static_cast<Gdiplus::REAL>(i) * xs;
 
-		if (m_Red) pGraphics->DrawLine(m_pPenR, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_Red[i]));
-		if (m_Green) pGraphics->DrawLine(m_pPenG, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_Green[i]));
-		if (m_Blue) pGraphics->DrawLine(m_pPenB, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_Blue[i]));
+		if (m_bHistR) pGraphics->DrawLine(m_pPenHistR, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_R[i]));
+		if (m_bHistG) pGraphics->DrawLine(m_pPenHistG, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_G[i]));
+		if (m_bHistB) pGraphics->DrawLine(m_pPenHistB, x, h, x, h - ys * static_cast<Gdiplus::REAL>(f->m_pHTR->m_B[i]));
 	}
 	
-	delete pGraphics;
+	safe_delete(pGraphics);
 	return S_OK;
 }
 DWORD WINAPI CTSSDlg::CalcHistThread(LPVOID lpParam)
@@ -150,14 +260,16 @@ DWORD WINAPI CTSSDlg::CalcHistThread(LPVOID lpParam)
 	auto p = reinterpret_cast<CHistThreadParam*>(lpParam);
 	auto pThreadReturn = new CHistThreadReturn(p->m_Path);
 
-	::CalcHist(p->m_pPixels, p->m_stride, p->m_xmax, p->m_ymax, &pThreadReturn->m_Red, &pThreadReturn->m_Green, &pThreadReturn->m_Blue);
+	::CalcHist(p->m_pPixels, p->m_Stride, p->m_MaxX, p->m_MaxY, &pThreadReturn->m_R, &pThreadReturn->m_G, &pThreadReturn->m_B);
+	p->m_pBmp->UnlockBits(p->m_pBmpData);
+	safe_delete(p->m_pBmpData);
 
-	while (!p->m_phThread) ::SwitchToThread();
-	::CloseHandle(p->m_phThread[0]);
-	p->m_phThread[0] = nullptr;
-
-	::SendMessageW(p->m_hwnd, WM_HISTOGRAM_READY, (WPARAM)pThreadReturn, 0);
-	delete p;
+	while (!p->m_vphThread) ::SwitchToThread();
+	::CloseHandle(p->m_vphThread[0]);
+	p->m_vphThread[0] = nullptr;
+	
+	::SendMessageW(p->m_hWnd, WM_HISTOGRAM_READY, (WPARAM)pThreadReturn, 0);
+	safe_delete(p);
 	return NULL;
 }
 LRESULT CTSSDlg::OnMsgHistReady(WPARAM wParam, LPARAM lParam)
@@ -169,16 +281,19 @@ LRESULT CTSSDlg::OnMsgHistReady(WPARAM wParam, LPARAM lParam)
 
 	loop(i, m_Files.size())
 	{
-		auto buff = m_Files[i].m_Path.GetBuffer();
+		auto f = &m_Files[i];
 
-		if (!wcscmp(buff, path))
+		if (!wcscmp(f->m_Path.GetBuffer(), path))
 		{
-			m_Files[i].m_pHTR = pThreadReturn;
-			break;
+			f->m_pHTR = pThreadReturn;
+			safe_delete(f->m_pGfx);
+			safe_delete(f->m_pBmp);
+
+			Invalidate();
+			return S_OK;
 		}
 	}
-
-	Invalidate();
+	safe_delete(pThreadReturn);
 	return S_OK;
 }
 
@@ -253,6 +368,10 @@ BEGIN_MESSAGE_MAP(CTSSDlg, CDialogEx)
 	ON_COMMAND(ID_HISTOGRAM_G, &CTSSDlg::OnHistogramG)
 	ON_COMMAND(ID_HISTOGRAM_B, &CTSSDlg::OnHistogramB)
 	ON_MESSAGE(WM_HISTOGRAM_READY, &OnMsgHistReady)
+	ON_MESSAGE(WM_PICTURE_READY, &OnMsgPicReady)
+	ON_COMMAND(ID_IMAGE_R, &CTSSDlg::OnImageR)
+	ON_COMMAND(ID_IMAGE_G, &CTSSDlg::OnImageG)
+	ON_COMMAND(ID_IMAGE_B, &CTSSDlg::OnImageB)
 END_MESSAGE_MAP()
 
 // CTSSDlg message handlers
@@ -387,7 +506,15 @@ void CTSSDlg::OnFileOpen()
 	}
 }
 
-
+void CTSSDlg::KillThread(PHANDLE phThread, DWORD dwExitCode)
+{
+	if (phThread[0] == nullptr) return;
+	::SuspendThread(phThread[0]);
+	::TerminateThread(phThread[0], dwExitCode);
+	::WaitForSingleObject(phThread[0], INFINITE);
+	::CloseHandle(phThread[0]);
+	phThread[0] = nullptr;
+}
 void CTSSDlg::OnFileClose()
 {
 	if (m_SelectedItem == -1) return;
@@ -395,19 +522,23 @@ void CTSSDlg::OnFileClose()
 
 	if (MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
 
-	if (f->m_hThread)
-	{
-		::SuspendThread(f->m_hThread);
-		::TerminateThread(f->m_hThread, 6);
-		::WaitForSingleObject(f->m_hThread, INFINITE);
-		::CloseHandle(f->m_hThread);
-		f->m_hThread = nullptr;
-	}
+	KillThread(&f->m_hHistThread, 6);
+	KillThread(&f->m_hPicThread, 7);
 
 	safe_delete(f->m_pImg);
 	safe_delete(f->m_pGfx);
 	safe_delete(f->m_pBmp);
 	safe_delete(f->m_pHTR);
+	if (f->m_pITR)
+	{
+		safe_delete(f->m_pITR->m_pImgR);
+		safe_delete(f->m_pITR->m_pImgG);
+		safe_delete(f->m_pITR->m_pImgB);
+		safe_delete(f->m_pITR->m_pImgRG);
+		safe_delete(f->m_pITR->m_pImgRB);
+		safe_delete(f->m_pITR->m_pImgGB);
+	}
+	safe_delete(f->m_pITR);
 	m_Files.erase(m_Files.begin() + m_SelectedItem);
 
 	m_FileList.DeleteItem(m_SelectedItem);
@@ -467,25 +598,17 @@ void CTSSDlg::OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult)
 }
 
 
-void CTSSDlg::OnHistogramR()
+void CTSSDlg::OnCheckBoxClick(UINT nIDCheckItem, bool* bState)
 {
-	m_Red ^= 1;
-	GetMenu()->CheckMenuItem(ID_HISTOGRAM_R, m_Red ? MF_CHECKED : MF_UNCHECKED);
+	bState[0] ^= 1;
+	GetMenu()->CheckMenuItem(nIDCheckItem, bState[0] ? MF_CHECKED : MF_UNCHECKED);
 	Invalidate();
 }
 
+void CTSSDlg::OnHistogramR() { OnCheckBoxClick(ID_HISTOGRAM_R, &m_bHistR); }
+void CTSSDlg::OnHistogramG() { OnCheckBoxClick(ID_HISTOGRAM_G, &m_bHistG); }
+void CTSSDlg::OnHistogramB() { OnCheckBoxClick(ID_HISTOGRAM_B, &m_bHistB); }
 
-void CTSSDlg::OnHistogramG()
-{
-	m_Green ^= 1;
-	GetMenu()->CheckMenuItem(ID_HISTOGRAM_G, m_Green ? MF_CHECKED : MF_UNCHECKED);
-	Invalidate();
-}
-
-
-void CTSSDlg::OnHistogramB()
-{
-	m_Blue ^= 1;
-	GetMenu()->CheckMenuItem(ID_HISTOGRAM_B, m_Blue ? MF_CHECKED : MF_UNCHECKED);
-	Invalidate();
-}
+void CTSSDlg::OnImageR() { OnCheckBoxClick(ID_IMAGE_R, &m_bPicR); }
+void CTSSDlg::OnImageG() { OnCheckBoxClick(ID_IMAGE_G, &m_bPicG); }
+void CTSSDlg::OnImageB() { OnCheckBoxClick(ID_IMAGE_B, &m_bPicB); }
