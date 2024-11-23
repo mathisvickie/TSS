@@ -119,7 +119,7 @@ LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
 void WINAPI CTSSDlg::RemovePicChannel(LPVOID pPic, bool bR, bool bG, bool bB)
 {
 	auto pImg = reinterpret_cast<Gdiplus::Image*>(pPic);
-	UINT mask = 0xFF0000 * (UINT)bR + 0xFF00 * (UINT)bG + 0xFF * (UINT)bB;
+	UINT mask = 0xFF000000 + 0xFF0000 * (UINT)bR + 0xFF00 * (UINT)bG + 0xFF * (UINT)bB;
 
 	auto pBmp = new Gdiplus::Bitmap(pImg->GetWidth(), pImg->GetHeight(), pImg->GetPixelFormat());
 	auto pGfx = new Gdiplus::Graphics(pBmp);
@@ -128,7 +128,8 @@ void WINAPI CTSSDlg::RemovePicChannel(LPVOID pPic, bool bR, bool bG, bool bB)
 	pGfx->DrawImage(pImg, 0, 0, pImg->GetWidth(), pImg->GetHeight());
 
 	Gdiplus::BitmapData bmp_data;
-	pBmp->LockBits(&Gdiplus::Rect(0, 0, pBmp->GetWidth(), pBmp->GetHeight()), Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bmp_data);
+	pBmp->LockBits(&Gdiplus::Rect(0, 0, pBmp->GetWidth(), pBmp->GetHeight()),
+		Gdiplus::ImageLockModeRead || Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bmp_data);
 
 	auto pixels = reinterpret_cast<UINT*>(bmp_data.Scan0);
 	auto stride = (UINT)(bmp_data.Stride >= 0 ? bmp_data.Stride : -bmp_data.Stride) >> 2;
