@@ -145,7 +145,7 @@ public:
 	
 	afx_msg LRESULT OnDrawImage(WPARAM wParam, LPARAM lParam);
 	static DWORD WINAPI CalcPicThread(LPVOID lpParam);
-	static void WINAPI RemovePicChannel(LPVOID pPic, bool bR, bool bG, bool bB);
+	static void WINAPI RemovePicChannel(Gdiplus::Image** ppImg, bool bR, bool bG, bool bB);
 	afx_msg LRESULT OnMsgPicReady(WPARAM wParam, LPARAM lParam);
 
 	afx_msg LRESULT OnDrawHist(WPARAM wParam, LPARAM lParam);

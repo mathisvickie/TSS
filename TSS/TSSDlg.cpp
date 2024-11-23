@@ -116,16 +116,15 @@ LRESULT CTSSDlg::OnDrawImage(WPARAM wParam, LPARAM lParam)
 	safe_delete(pGraphics);
 	return S_OK;
 }
-void WINAPI CTSSDlg::RemovePicChannel(LPVOID pPic, bool bR, bool bG, bool bB)
+void WINAPI CTSSDlg::RemovePicChannel(Gdiplus::Image** ppImg, bool bR, bool bG, bool bB)
 {
-	auto pImg = reinterpret_cast<Gdiplus::Image*>(pPic);
 	UINT mask = 0xFF000000 + 0xFF0000 * (UINT)bR + 0xFF00 * (UINT)bG + 0xFF * (UINT)bB;
 
-	auto pBmp = new Gdiplus::Bitmap(pImg->GetWidth(), pImg->GetHeight(), pImg->GetPixelFormat());
+	auto pBmp = new Gdiplus::Bitmap(ppImg[0]->GetWidth(), ppImg[0]->GetHeight(), ppImg[0]->GetPixelFormat());
 	auto pGfx = new Gdiplus::Graphics(pBmp);
-
+	
 	pGfx->Clear(Gdiplus::Color::Transparent);
-	pGfx->DrawImage(pImg, 0, 0, pImg->GetWidth(), pImg->GetHeight());
+	pGfx->DrawImage(ppImg[0], 0, 0, ppImg[0]->GetWidth(), ppImg[0]->GetHeight());
 
 	Gdiplus::BitmapData bmp_data;
 	pBmp->LockBits(&Gdiplus::Rect(0, 0, pBmp->GetWidth(), pBmp->GetHeight()),
@@ -146,8 +145,10 @@ void WINAPI CTSSDlg::RemovePicChannel(LPVOID pPic, bool bR, bool bG, bool bB)
 		}
 	}
 	pBmp->UnlockBits(&bmp_data);
+
+	safe_delete(ppImg[0]);
+	ppImg[0] = static_cast<Gdiplus::Image*>(pBmp);
 	safe_delete(pGfx);
-	safe_delete(pBmp);
 }
 DWORD WINAPI CTSSDlg::CalcPicThread(LPVOID lpParam)
 {
@@ -161,12 +162,12 @@ DWORD WINAPI CTSSDlg::CalcPicThread(LPVOID lpParam)
 	pThreadReturn->m_pImgRB = p->m_pImg->Clone();
 	pThreadReturn->m_pImgGB = p->m_pImg->Clone();
 
-	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgR, 1, 0, 0);
-	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgG, 0, 1, 0);
-	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgB, 0, 0, 1);
-	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgRG, 1, 1, 0);
-	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgRB, 1, 0, 1);
-	CTSSDlg::RemovePicChannel(pThreadReturn->m_pImgGB, 0, 1, 1);
+	CTSSDlg::RemovePicChannel(&pThreadReturn->m_pImgR, 1, 0, 0);
+	CTSSDlg::RemovePicChannel(&pThreadReturn->m_pImgG, 0, 1, 0);
+	CTSSDlg::RemovePicChannel(&pThreadReturn->m_pImgB, 0, 0, 1);
+	CTSSDlg::RemovePicChannel(&pThreadReturn->m_pImgRG, 1, 1, 0);
+	CTSSDlg::RemovePicChannel(&pThreadReturn->m_pImgRB, 1, 0, 1);
+	CTSSDlg::RemovePicChannel(&pThreadReturn->m_pImgGB, 0, 1, 1);
 
 	while (!p->m_vphThread) ::SwitchToThread();
 	::CloseHandle(p->m_vphThread[0]);
