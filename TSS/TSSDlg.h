@@ -28,20 +28,29 @@ class CStaticHist : public CStatic
 class CTSSFile
 {
 public:
-	CTSSFile(CString p)
-		:m_Path(p), m_pImg(nullptr), m_pGfx(nullptr), m_pBmp(nullptr), m_hHistThread(nullptr), m_pHTR(nullptr), m_hPicThread(nullptr), m_pITR(nullptr)
+	CTSSFile(CString p):m_Path(p)
 	{
 		m_Name = m_Path.Mid(m_Path.ReverseFind('\\') + 1);
 	}
 	CString m_Path;
 	CString m_Name;
-	Gdiplus::Image* m_pImg;
-	Gdiplus::Graphics* m_pGfx;
-	Gdiplus::Bitmap* m_pBmp;
-	HANDLE m_hHistThread;
-	class CHistThreadReturn* m_pHTR;
-	HANDLE m_hPicThread;
-	class CPicThreadReturn* m_pITR;
+	Gdiplus::Image* m_pImg = nullptr;
+	Gdiplus::Graphics* m_pGfx = nullptr;
+	Gdiplus::Bitmap* m_pBmp = nullptr;
+	HANDLE m_hHistThread = nullptr;
+	class CHistThreadReturn* m_pHTR = nullptr;
+	HANDLE m_hPicThreadR = nullptr;
+	HANDLE m_hPicThreadG = nullptr;
+	HANDLE m_hPicThreadB = nullptr;
+	HANDLE m_hPicThreadRG = nullptr;
+	HANDLE m_hPicThreadRB = nullptr;
+	HANDLE m_hPicThreadGB = nullptr;
+	Gdiplus::Image* m_pImgR = nullptr;
+	Gdiplus::Image* m_pImgG = nullptr;
+	Gdiplus::Image* m_pImgB = nullptr;
+	Gdiplus::Image* m_pImgRG = nullptr;
+	Gdiplus::Image* m_pImgRB = nullptr;
+	Gdiplus::Image* m_pImgGB = nullptr;
 };
 
 class CHistThreadParam
@@ -81,9 +90,13 @@ public:
 class CPicThreadParam
 {
 public:
-	CPicThreadParam(CString p, HWND hw, Gdiplus::Image* pi, volatile PHANDLE ph):m_Path(p), m_hWnd(hw), m_pImg(pi), m_vphThread(ph) {}
+	CPicThreadParam(CString p, HWND hw, BOOL r, BOOL g, BOOL b, Gdiplus::Image* pi, volatile PHANDLE ph)
+		:m_Path(p), m_hWnd(hw), m_bR(r), m_bG(g), m_bB(b), m_pImg(pi), m_vphThread(ph) { }
 	CString m_Path;
 	HWND m_hWnd;
+	BOOL m_bR;
+	BOOL m_bG;
+	BOOL m_bB;
 	Gdiplus::Image* m_pImg;
 	volatile PHANDLE m_vphThread;
 };
@@ -91,14 +104,12 @@ public:
 class CPicThreadReturn
 {
 public:
-	CPicThreadReturn(CString p):m_Path(p), m_pImgR(nullptr), m_pImgG(nullptr), m_pImgB(nullptr), m_pImgRG(nullptr), m_pImgRB(nullptr), m_pImgGB(nullptr) {}
+	CPicThreadReturn(class CPicThreadParam* p):m_Path(p->m_Path), m_bR(p->m_bR), m_bG(p->m_bG), m_bB(p->m_bB), m_pImgFx(p->m_pImg) { }
 	CString m_Path;
-	Gdiplus::Image* m_pImgR;
-	Gdiplus::Image* m_pImgG;
-	Gdiplus::Image* m_pImgB;
-	Gdiplus::Image* m_pImgRG;
-	Gdiplus::Image* m_pImgRB;
-	Gdiplus::Image* m_pImgGB;
+	BOOL m_bR;
+	BOOL m_bG;
+	BOOL m_bB;
+	Gdiplus::Image* m_pImgFx;
 };
 
 // CTSSDlg dialog
@@ -145,33 +156,35 @@ public:
 	
 	afx_msg LRESULT OnDrawImage(WPARAM wParam, LPARAM lParam);
 	static DWORD WINAPI CalcPicThread(LPVOID lpParam);
-	static void WINAPI RemovePicChannel(Gdiplus::Image** ppImg, bool bR, bool bG, bool bB);
+	static void WINAPI RemovePicChannel(Gdiplus::Image** ppImg, BOOL bR, BOOL bG, BOOL bB);
 	afx_msg LRESULT OnMsgPicReady(WPARAM wParam, LPARAM lParam);
 
 	afx_msg LRESULT OnDrawHist(WPARAM wParam, LPARAM lParam);
 	static DWORD WINAPI CalcHistThread(LPVOID lpParam);
 	afx_msg LRESULT OnMsgHistReady(WPARAM wParam, LPARAM lParam);
-	Gdiplus::Pen* m_pPenHistR;
-	Gdiplus::Pen* m_pPenHistG;
-	Gdiplus::Pen* m_pPenHistB;
+	Gdiplus::Pen* m_pPenHistR = nullptr;
+	Gdiplus::Pen* m_pPenHistG = nullptr;
+	Gdiplus::Pen* m_pPenHistB = nullptr;
 
 	std::vector<CTSSFile> m_Files;
-	bool IsFileOpen(CTSSFile* pFile);
+	BOOL IsFileOpen(CTSSFile* pFile);
 	BOOL PreTranslateMessage(PMSG pMsg);
 	afx_msg void OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult);
 	int m_SelectedItem = -1;
 	
-	void OnCheckBoxClick(UINT nIDCheckItem, bool* bState);
+	void OnCheckBoxClick(UINT nIDCheckItem, BOOL* bState);
 	afx_msg void OnHistogramR();
 	afx_msg void OnHistogramG();
 	afx_msg void OnHistogramB();
+	void CheckImageChannels(void);
 	afx_msg void OnImageR();
 	afx_msg void OnImageG();
 	afx_msg void OnImageB();
-	bool m_bHistR = 1;
-	bool m_bHistG = 1;
-	bool m_bHistB = 1;
-	bool m_bPicR = 1;
-	bool m_bPicG = 1;
-	bool m_bPicB = 1;
+	BOOL m_bHistR = TRUE;
+	BOOL m_bHistG = TRUE;
+	BOOL m_bHistB = TRUE;
+	BOOL m_bPicR = TRUE;
+	BOOL m_bPicG = TRUE;
+	BOOL m_bPicB = TRUE;
+	afx_msg void OnImageOriginal();
 };
