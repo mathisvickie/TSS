@@ -133,11 +133,7 @@ void WINAPI CTSSDlg::RemovePicChannel(Gdiplus::Image** ppImg, BOOL bR, BOOL bG, 
 	loop(y, y_max)
 	{
 		UINT ys = y * stride;
-
-		loop(x, x_max)
-		{
-			pixels[ys + x] &= mask;
-		}
+		loop(x, x_max) pixels[ys + x] &= mask;
 	}
 	pBmp->UnlockBits(&bmp_data);
 
@@ -489,7 +485,7 @@ void CTSSDlg::OnFileClose()
 {
 	if (m_SelectedItem == -1) return;
 	auto f = &m_Files[m_SelectedItem];
-	if (MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
+	if (::MessageBoxA(nullptr, "Do you want to really delete this item?", "Are you sure?", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST) != IDYES) return;
 	
 	auto lKillThread = [](PHANDLE phThread, DWORD dwExitCode) -> void
 	{
@@ -568,38 +564,28 @@ void CTSSDlg::OnFileSave()
 	
 	CString path = fd.GetPathName();
 	CString ext = path.Mid(path.ReverseFind('.') + 1).MakeLower();
+	PWCHAR mime;
+	CLSID clsid;
 
-	PWCHAR mime = nullptr;
 	if (ext == L"png") mime = L"image/png";
 	else if (ext == L"bmp") mime = L"image/bmp";
 	else mime = L"image/jpeg";
 
-	auto lGetEncoderClsid = [](PWCHAR format, CLSID* pClsid) -> INT
+	UINT count = 0;
+	UINT size = 0;
+	Gdiplus::GetImageEncodersSize(&count, &size);
+
+	auto pCodecInfo = reinterpret_cast<Gdiplus::ImageCodecInfo*>(::malloc(size));
+	Gdiplus::GetImageEncoders(count, size, pCodecInfo);
+
+	loop(i, count) if (!wcscmp(pCodecInfo[i].MimeType, mime))
 	{
-		UINT count = 0;
-		UINT size = 0;
-		Gdiplus::GetImageEncodersSize(&count, &size);
-
-		auto pCodecInfo = reinterpret_cast<Gdiplus::ImageCodecInfo*>(::malloc(size));
-		Gdiplus::GetImageEncoders(count, size, pCodecInfo);
-
-		loop(i, count) if (!wcscmp(pCodecInfo[i].MimeType, format))
-		{
-			*pClsid = pCodecInfo[i].Clsid;
-
-			::free(pCodecInfo);
-			return i;
-		}
-		::free(pCodecInfo);
-		return -1;
-	};
-
-	CLSID clsid;
-	if (lGetEncoderClsid(mime, &clsid) >= 0)
-	{
-		if (m_pCurrentImg->Save(path, &clsid, nullptr) == Gdiplus::Ok) return;
+		clsid = pCodecInfo[i].Clsid;
+		break;
 	}
-	AfxMessageBox(L"Image save failed!");
+	::free(pCodecInfo);
+	
+	if (m_pCurrentImg->Save(path, &clsid, nullptr) != Gdiplus::Ok) ::AfxMessageBox(L"Saving failed! Is the file opened?");
 }
 
 
@@ -619,7 +605,7 @@ void CTSSDlg::OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult)
 		m_SelectedItem = -1;
 		Invalidate();
 	}
-	*pResult = 0;
+	pResult[0] = 0;
 }
 
 
