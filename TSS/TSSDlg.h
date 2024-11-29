@@ -28,10 +28,7 @@ class CStaticHist : public CStatic
 class CTSSFile
 {
 public:
-	CTSSFile(CString p):m_Path(p)
-	{
-		m_Name = m_Path.Mid(m_Path.ReverseFind('\\') + 1);
-	}
+	CTSSFile(CString p):m_Path(p) { m_Name = m_Path.Mid(m_Path.ReverseFind('\\') + 1); }
 	CString m_Path;
 	CString m_Name;
 	Gdiplus::Image* m_pImg = nullptr;
@@ -87,10 +84,10 @@ public:
 	std::vector<UINT> m_B;
 };
 
-class CPicThreadParam
+class CPicThreadData
 {
 public:
-	CPicThreadParam(CString p, HWND hw, BOOL r, BOOL g, BOOL b, Gdiplus::Image* pi, volatile PHANDLE ph)
+	CPicThreadData(CString p, HWND hw, BOOL r, BOOL g, BOOL b, Gdiplus::Image* pi, volatile PHANDLE ph)
 		:m_Path(p), m_hWnd(hw), m_bR(r), m_bG(g), m_bB(b), m_pImg(pi), m_vphThread(ph) { }
 	CString m_Path;
 	HWND m_hWnd;
@@ -99,17 +96,6 @@ public:
 	BOOL m_bB;
 	Gdiplus::Image* m_pImg;
 	volatile PHANDLE m_vphThread;
-};
-
-class CPicThreadReturn
-{
-public:
-	CPicThreadReturn(class CPicThreadParam* p):m_Path(p->m_Path), m_bR(p->m_bR), m_bG(p->m_bG), m_bB(p->m_bB), m_pImgFx(p->m_pImg) { }
-	CString m_Path;
-	BOOL m_bR;
-	BOOL m_bG;
-	BOOL m_bB;
-	Gdiplus::Image* m_pImgFx;
 };
 
 // CTSSDlg dialog
@@ -152,8 +138,13 @@ public:
 	CRect m_HistRect;
 	CStaticImage m_Pic;
 	CRect m_PicRect;
-	void KillThread(PHANDLE phThread, DWORD dwExitCode);
+	Gdiplus::Image* m_pCurrentImg = nullptr;
 	
+	std::vector<CTSSFile> m_Files;
+	int m_SelectedItem = -1;
+	BOOL PreTranslateMessage(PMSG pMsg);
+	afx_msg void OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult);
+
 	afx_msg LRESULT OnDrawImage(WPARAM wParam, LPARAM lParam);
 	static DWORD WINAPI CalcPicThread(LPVOID lpParam);
 	static void WINAPI RemovePicChannel(Gdiplus::Image** ppImg, BOOL bR, BOOL bG, BOOL bB);
@@ -166,23 +157,17 @@ public:
 	Gdiplus::Pen* m_pPenHistG = nullptr;
 	Gdiplus::Pen* m_pPenHistB = nullptr;
 
-	std::vector<CTSSFile> m_Files;
-	BOOL IsFileOpen(CTSSFile* pFile);
-	BOOL PreTranslateMessage(PMSG pMsg);
-	afx_msg void OnLvnItemchangedListFile(NMHDR* pNMHDR, LRESULT* pResult);
-	int m_SelectedItem = -1;
-	
 	void OnCheckBoxClick(UINT nIDCheckItem, BOOL* bState);
 	afx_msg void OnHistogramR();
 	afx_msg void OnHistogramG();
 	afx_msg void OnHistogramB();
-	void CheckImageChannels(void);
-	afx_msg void OnImageR();
-	afx_msg void OnImageG();
-	afx_msg void OnImageB();
 	BOOL m_bHistR = TRUE;
 	BOOL m_bHistG = TRUE;
 	BOOL m_bHistB = TRUE;
+	void CheckImageChannels();
+	afx_msg void OnImageR();
+	afx_msg void OnImageG();
+	afx_msg void OnImageB();
 	BOOL m_bPicR = TRUE;
 	BOOL m_bPicG = TRUE;
 	BOOL m_bPicB = TRUE;
