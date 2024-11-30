@@ -517,12 +517,11 @@ void CTSSDlg::OnFileClose()
 	safe_delete(f->m_pImgGB);
 
 	m_Files.erase(m_Files.begin() + m_SelectedItem);
+	OnImageOriginal();
 
 	m_FileList.DeleteItem(m_SelectedItem);
 	m_FileList.SetItemState(0, LVIS_SELECTED, LVIS_SELECTED);
 	m_FileList.SetSelectionMark(0);
-
-	OnImageOriginal();
 	Invalidate();
 }
 
